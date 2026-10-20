@@ -1,6 +1,6 @@
 ---
 name: find-journalists
-description: "Build a researched, fit-checked journalist list for a specific PR campaign. Prefer Medialyst's asynchronous media-list research workflow when available, with explicit approval before credit spend; otherwise produce a best-effort local list without guessed contacts."
+description: "Build a researched, fit-checked journalist list for a specific PR campaign. Prefer Medialyst's asynchronous media-list research workflow when available, with explicit approval before credit spend; otherwise produce a local list with emails from the free finder (published, SMTP-checked, or labelled inferred)."
 when_to_use: "User asks to find journalists for a pitch or newsjack angle; build, generate, refine, dedupe, or enrich a journalist/media list; identify real bylines for a topic; or another Newsjack skill has produced journalist shapes that need real recipient discovery."
 metadata:
   category: Act
@@ -29,7 +29,7 @@ The applicable gates are concrete:
 
 - **Anti-slop:** write a specific campaign brief and replace generic output with recipient-level reasoning.
 - **Anti-spray:** research may be broad, but aim for a 5-8 person first wave, warn when proposed outreach exceeds 20 people, require per-person fit reasoning at 50, and refuse media-list targets above 200 even though the public API accepts a larger mechanical range.
-- **Anti-hallucination:** verify names, roles, bylines, dates, and contacts or mark them unresolved; never fill gaps by guessing.
+- **Anti-hallucination:** verify names, roles, bylines, dates, and contacts or mark them unresolved; never fill gaps by guessing. A finder result labelled `inferred` is a disclosed pattern guess, not a fabricated contact.
 - **Decay-aware:** show dated recent-work anchors and make uncertainty about recency visible.
 - **Human-send:** this workflow researches only. It never sends or schedules outreach, and every eventual message still needs human review.
 
@@ -53,9 +53,7 @@ Use the first workable mode:
 1. **CLI mode (preferred in local agents).** Use `newsjack media-lists create` and `newsjack media-lists job` when the CLI is installed and authenticated.
 2. **MCP mode.** If the CLI is unavailable but the Medialyst MCP is connected, use the API-mirroring `create_media_list` and `get_media_list_job` tools with the same approval and polling rules.
 3. **Approval-gated browser handoff.** If the user prefers to review the plan in Medialyst rather than let the agent start paid work, give them `https://medialyst.ai/app/_/workflow/campaign?prompt=[URL-ENCODED-PROMPT]`. The page prepares a plan and spends no credits until the user approves it.
-4. **Local mode.** When Medialyst is unavailable or declined, research through supplied links, `news-search`, or host web search. Return a local Markdown list without guessed emails or handles.
-
-Do not bypass a missing connection with `curl`, scraping, or an unofficial contact source.
+4. **Local mode.** When Medialyst is unavailable or declined, research through supplied links, `news-search`, or host web search, then resolve each kept journalist's email with the free finder (see **Local Email Lookup**).
 
 ## Size The Research Pool
 
@@ -192,9 +190,24 @@ Local Mode is best effort and should not imitate verified enrichment.
 2. Read relevant editorial coverage and follow the entities and phrases it reveals into further searches.
 3. Keep named journalists with dated, linked person-level evidence; quarantine wires, aggregators, brand content, vendor blogs, and outlet landing pages.
 4. Audit for missed regions, freelancers/newsletters, adjacent beats, and breaking coverage until another search round yields no new real fits.
-5. Return only defensible rows. Leave Contact blank and state that no live enrichment ran; never guess an email or handle.
+5. Return only defensible rows. Fill Contact from **Local Email Lookup**, labelled with its method; leave it blank only when the finder returns nothing.
 
-End by offering either the approval-gated Medialyst deep link or a later agent-driven run with explicit credit approval.
+### Local Email Lookup
+
+`scripts/find_email.py` (this fork's addition, stdlib Python, no paid service) finds a journalist's address in this order:
+
+1. **published**: on the article, the author's page, or any page you pass with `--url` (mailto, page text, JSON-LD, Cloudflare-obfuscated), with a local part that matches the name. High confidence.
+2. **smtp**: not published; built from common newsroom patterns and accepted by the outlet's mail server while a random address is rejected. Medium confidence.
+3. **inferred**: the pattern could not be checked (catch-all server, probe refused). Low confidence.
+
+Before running it, use host web search to find the journalist's author page, bio, contact page, or personal site, and pass each as `--url` with the anchor article:
+
+```bash
+python3 -I <skill-dir>/scripts/find_email.py --name "Jane Doe" --domain outlet.com \
+  --url ARTICLE_URL --url AUTHOR_PAGE_URL
+```
+
+`--domain` is the outlet's mail domain (usually the site domain; freelancers may need their own). Write the Contact cell as `email (method, source URL or pattern)`, e.g. `jdoe@outlet.com (published, outlet.com/author/jane-doe)` or `jane.doe@outlet.com (smtp)`. An `inferred` address goes in the cell with the word *inferred* so the sender knows it may bounce. Never present smtp or inferred as published.
 
 ## What To Show The User
 
